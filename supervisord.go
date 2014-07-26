@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/kolo/xmlrpc"
+	"github.com/Ligustah/xmlrpc"
 	"log"
 	"net"
 	"net/http"
@@ -112,6 +112,9 @@ type Supervisor interface {
 	TailProcessStderrLog(string, int64, int64) (string, int64, bool, error)
 	ClearProcessLogs(string) (bool, error)
 	ClearAllProcessLogs() (bool, error)
+
+	// misc
+	Close() error
 }
 
 type supervisor struct {
@@ -364,20 +367,24 @@ func (s *supervisor) ClearAllProcessLogs() (success bool, err error) {
 	return
 }
 
+func (s *supervisor) Close() error {
+	return s.rpcClient.Close()
+}
+
 type supervisorTransport struct {
 }
 
 func (st *supervisorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL == nil {
-		return nil, errors.New("supervisor+unix: nil Request.URL")
+		return nil, errors.New("unix: nil Request.URL")
 	}
 
 	if req.Header == nil {
-		return nil, errors.New("supervisor+unix: nil Request.Header")
+		return nil, errors.New("unix: nil Request.Header")
 	}
 
-	if req.URL.Scheme != "supervisor+unix" {
-		panic("supervisor+unix: unsupported protocol scheme")
+	if req.URL.Scheme != "unix" {
+		panic("unix: unsupported protocol scheme")
 	}
 
 	sock, err := net.Dial("unix", req.URL.Path)
@@ -400,12 +407,14 @@ func (st *supervisorTransport) RoundTrip(req *http.Request) (*http.Response, err
 //
 // Optionally specify a http.Transport to use, will use default http.Transport if nil.
 // This will also register a
-func New(u *url.URL, transport *http.Transport) Supervisor {
+func New(url string, transport *http.Transport) Supervisor {
 	if transport == nil {
 		transport = new(http.Transport)
 	}
 
-	transport.RegisterProtocol("supervisor+unix", new(supervisorTransport))
-	xmlrpc.NewClient(url, transport)
-	super := supervisor
+	transport.RegisterProtocol("unix", new(supervisorTransport))
+
+	//xmlrpc.NewClient never returns an error
+	client, _ := xmlrpc.NewClient(url, transport)
+	return &supervisor{client}
 }
